@@ -1196,6 +1196,7 @@ def render_image_region_rdef(request, iid, z=None, t=None, conn=None, **kwargs):
 
 
 @login_required()
+@jsonp
 def render_ome_tiff(request, ctx, cid, conn=None, **kwargs):
     """
     Renders the OME-TIFF representation of the image(s) with id cid in ctx
@@ -1258,11 +1259,7 @@ def render_ome_tiff(request, ctx, cid, conn=None, **kwargs):
     imgs = [x for x in imgs if not x.requiresPixelsPyramid()]
 
     if request.GET.get("dryrun", False):
-        rv = json.dumps(len(imgs))
-        c = request.GET.get("callback", None)
-        if c is not None and not kwargs.get("_internal", False):
-            rv = "%s(%s)" % (c, rv)
-        return HttpJavascriptResponse(rv)
+        return len(imgs)
     if len(imgs) == 0:
         raise Http404
     if len(imgs) == 1:
@@ -1832,7 +1829,7 @@ def listDatasets_json(request, pid, conn=None, **kwargs):
 
     project = conn.getObject("Project", pid)
     if project is None:
-        return HttpJavascriptResponse("[]")
+        return []
     return [x.simpleMarshal(xtra={"childCount": 0}) for x in project.listChildren()]
 
 
@@ -2041,6 +2038,7 @@ def search_json(request, conn=None, **kwargs):
 
 @require_POST
 @login_required()
+@jsonp
 @validate_rdef_query
 def save_image_rdef_json(request, iid, conn=None, **kwargs):
     """
@@ -2064,10 +2062,7 @@ def save_image_rdef_json(request, iid, conn=None, **kwargs):
     else:
         pi[0].getThumbnail()
         json_data = "true"
-    if request.GET.get("callback", None):
-        json_data = "%s(%s)" % (request.GET["callback"], json_data)
-    return HttpJavascriptResponse(json_data)
-
+    return json_data
 
 @login_required(omero_group=None)
 @jsonp
@@ -2206,6 +2201,7 @@ def luts_png(request, conn=None, **kwargs):
 
 
 @login_required()
+@jsonp
 def list_compatible_imgs_json(request, iid, conn=None, **kwargs):
     """
     Lists the images on the same project that would be viable targets for
@@ -2257,9 +2253,7 @@ def list_compatible_imgs_json(request, iid, conn=None, **kwargs):
         imgs = filter(compat, imgs)
         json_data = json.dumps([x.getId() for x in imgs])
 
-    if r.get("callback", None):
-        json_data = "%s(%s)" % (r["callback"], json_data)
-    return HttpJavascriptResponse(json_data)
+    return json_data
 
 
 @require_POST
