@@ -255,6 +255,65 @@ def validate_rdef_query(func):
     return wrapper_validate
 
 
+def jsonp(f):
+    """
+    Decorator for adding connection debugging and returning function result as
+    json, depending on values in kwargs
+
+    @param f:       The function to wrap
+    @return:        The wrapped function, which will return json
+    """
+
+    @wraps(f)
+    def wrap(request, *args, **kwargs):
+        logger.debug("jsonp")
+        try:
+            server_id = kwargs.get("server_id", None)
+            if server_id is None and request.session.get("connector"):
+                server_id = request.session["connector"]["server_id"]
+            kwargs["server_id"] = server_id
+            rv = f(request, *args, **kwargs)
+            if kwargs.get("_raw", False):
+                return rv
+            if isinstance(rv, HttpResponse):
+                return rv
+            c = request.GET.get("callback", None)
+            if c is not None and not kwargs.get("_internal", False):
+                if not VALID_JS_VARIABLE.match(c):
+                    return HttpResponseBadRequest("Invalid callback")
+                rv = json.dumps(rv)
+                rv = "%s(%s)" % (c, rv)
+                # mimetype for JSONP is application/javascript
+                return HttpJavascriptResponse(rv)
+            if kwargs.get("_internal", False):
+                return rv
+            # mimetype for JSON is application/json
+            # NB: To support old api E.g. /get_rois_json/
+            # We need to support lists
+            safe = type(rv) is dict
+            # Allow optional JSON dumps parameters
+            json_params = kwargs.get("_json_dumps_params", None)
+            return JsonResponse(rv, safe=safe, json_dumps_params=json_params)
+        except Exception as ex:
+            # Default status is 500 'server error'
+            # But we try to handle all 'expected' errors appropriately
+            # TODO: handle omero.ConcurrencyException
+            status = 500
+            if isinstance(ex, omero.SecurityViolation):
+                status = 403
+            elif isinstance(ex, omero.ApiUsageException):
+                status = 400
+            trace = traceback.format_exc()
+            logger.debug(trace)
+            if kwargs.get("_raw", False) or kwargs.get("_internal", False):
+                raise
+            return JsonResponse(
+                {"message": str(ex), "stacktrace": trace}, status=status
+            )
+
+    return wrap
+
+
 def _split_channel_info(rchannels):
     """
     Splits the request query channel information for images into a sequence of
@@ -1424,65 +1483,6 @@ def debug(f):
         if "error" in debug:
             raise AttributeError("Debug requested error")
         return f(request, *args, **kwargs)
-
-    return wrap
-
-
-def jsonp(f):
-    """
-    Decorator for adding connection debugging and returning function result as
-    json, depending on values in kwargs
-
-    @param f:       The function to wrap
-    @return:        The wrapped function, which will return json
-    """
-
-    @wraps(f)
-    def wrap(request, *args, **kwargs):
-        logger.debug("jsonp")
-        try:
-            server_id = kwargs.get("server_id", None)
-            if server_id is None and request.session.get("connector"):
-                server_id = request.session["connector"]["server_id"]
-            kwargs["server_id"] = server_id
-            rv = f(request, *args, **kwargs)
-            if kwargs.get("_raw", False):
-                return rv
-            if isinstance(rv, HttpResponse):
-                return rv
-            c = request.GET.get("callback", None)
-            if c is not None and not kwargs.get("_internal", False):
-                if not VALID_JS_VARIABLE.match(c):
-                    return HttpResponseBadRequest("Invalid callback")
-                rv = json.dumps(rv)
-                rv = "%s(%s)" % (c, rv)
-                # mimetype for JSONP is application/javascript
-                return HttpJavascriptResponse(rv)
-            if kwargs.get("_internal", False):
-                return rv
-            # mimetype for JSON is application/json
-            # NB: To support old api E.g. /get_rois_json/
-            # We need to support lists
-            safe = type(rv) is dict
-            # Allow optional JSON dumps parameters
-            json_params = kwargs.get("_json_dumps_params", None)
-            return JsonResponse(rv, safe=safe, json_dumps_params=json_params)
-        except Exception as ex:
-            # Default status is 500 'server error'
-            # But we try to handle all 'expected' errors appropriately
-            # TODO: handle omero.ConcurrencyException
-            status = 500
-            if isinstance(ex, omero.SecurityViolation):
-                status = 403
-            elif isinstance(ex, omero.ApiUsageException):
-                status = 400
-            trace = traceback.format_exc()
-            logger.debug(trace)
-            if kwargs.get("_raw", False) or kwargs.get("_internal", False):
-                raise
-            return JsonResponse(
-                {"message": str(ex), "stacktrace": trace}, status=status
-            )
 
     return wrap
 
